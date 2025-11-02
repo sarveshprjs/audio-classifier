@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🎧 Real-Time Audio Classifier</title>
+    <style>
+      body {
+        font-family: "Poppins", sans-serif;
+        background: #121212;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+      }
+
+      h1 {
+        margin-bottom: 20px;
+        color: #00e0ff;
+      }
+
+      button,
+      input[type="file"] {
+        background: #00e0ff;
+        border: none;
+        color: black;
+        font-size: 16px;
+        padding: 12px 25px;
+        border-radius: 12px;
+        cursor: pointer;
+        margin: 10px;
+        transition: all 0.3s;
+      }
+
+      button:hover,
+      label:hover {
+        background: #00b5cc;
+      }
+
+      #predictions {
+        margin-top: 20px;
+        font-size: 18px;
+        background: #1e1e1e;
+        padding: 20px;
+        border-radius: 10px;
+        width: 320px;
+        word-wrap: break-word;
+      }
+
+      #fileInput {
+        display: none;
+      }
+
+      label[for="fileInput"] {
+        background: #00e0ff;
+        color: black;
+        padding: 12px 25px;
+        border-radius: 12px;
+        cursor: pointer;
+        margin: 10px;
+        transition: all 0.3s;
+        display: inline-block;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>🎧 Real-Time Audio Classification</h1>
+
+    <button id="startBtn">Start Recording</button>
+    <button id="stopBtn" disabled>Stop & Predict</button>
+    <label for="fileInput">Upload Audio File</label>
+    <input type="file" id="fileInput" accept="audio/*" />
+    <div id="predictions">No prediction yet</div>
+
+    <script>
+      let mediaRecorder;
+      let audioChunks = [];
+
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const predictionsDiv = document.getElementById("predictions");
+      const fileInput = document.getElementById("fileInput");
+
+      // 🎙 Start recording
+      startBtn.addEventListener("click", async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunks, {
+            type: "audio/wav",
+          });
+          await sendAudioToServer(audioBlob);
+        };
+
+        mediaRecorder.start();
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        predictionsDiv.innerText = "🎙 Recording...";
+      });
+
+      // 🛑 Stop recording
+      stopBtn.addEventListener("click", () => {
+        mediaRecorder.stop();
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        predictionsDiv.innerText = "Processing recording...";
+      });
+
+      // 📁 Handle file upload
+      fileInput.addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          predictionsDiv.innerText = "Processing uploaded file...";
+          await sendAudioToServer(file);
+          fileInput.value = ""; // Reset file input (prevents reloading)
+        }
+      });
+
+      // 🚀 Send to Flask server
+      async function sendAudioToServer(audioBlob) {
+        const formData = new FormData();
+        formData.append("audio", audioBlob, "input.wav");
+
+        try {
+          const res = await fetch("http://127.0.0.1:5000/predict", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await res.json();
+          console.log("Server Response:", data);
+
+          if (data.predictions && data.predictions.length > 0) {
+            const preds = data.predictions
+              .map(
+                (p) =>
+                  `${p.class_name || "Unknown"} (${(p.confidence * 100).toFixed(
+                    2
+                  )}%)`
+              )
+              .join("<br>");
+            predictionsDiv.innerHTML = `<b>Top Predictions:</b><br>${preds}`;
+          } else {
+            predictionsDiv.innerText = "⚠️ No predictions returned.";
+          }
+        } catch (err) {
+          predictionsDiv.innerText = "⚠️ Server Error or Connection Refused";
+          console.error("Error:", err);
+        }
+      }
+    </script>
+  </body>
+</html>
